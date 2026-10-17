@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Smart Remote Control</string>
+    <string name="channel_screen_cast">خدمة بث الشاشة والتحكم المباشر</string>
+    <string name="channel_screen_cast_desc">إشعار أمان دائم يظهر طوال مدة مشاركة الشاشة مع الأجهزة الأخرى</string>
+    <string name="channel_pc_host">خدمة استضافة شاشة الكمبيوتر</string>
+    <string name="channel_pc_host_desc">تنبيه مستمر أثناء تحكم كمبيوتر Windows في الهاتف</string>
+
+    <string name="cast_active_title">مشاركة الشاشة نشطة</string>
+    <string name="cast_active_desc">يتم الآن بث شاشة الهاتف إلى الجهاز المتصل</string>
+    <string name="btn_start_cast">بدء بث شاشة الهاتف</string>
+    <string name="btn_stop_cast">إيقاف البث فوراً</string>
+
+    <string name="cast_started">بدأت جلسة مشاركة الشاشة بنجاح</string>
+    <string name="cast_stopped">تم إيقاف مشاركة الشاشة</string>
+    <string name="cast_permission_denied">تم إلغاء أو رفض إذن مشاركة الشاشة</string>
+
+    <string name="error_invalid_ip">يرجى إدخال عنوان IP صالح للكمبيوتر</string>
+    <string name="error_invalid_pin">رمز PIN يجب أن يتكون من 6 أرقام</string>
+</resources>
