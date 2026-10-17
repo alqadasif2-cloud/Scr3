@@ -35,8 +35,8 @@ class ProtocolUnitTest {
         val winSendInputX = Math.round(normX * 65535.0)
         val winSendInputY = Math.round(normY * 65535.0)
 
-        assertEquals(32768, winSendInputX)
-        assertEquals(32768, winSendInputY)
+        assertEquals(32768L, winSendInputX)
+        assertEquals(32768L, winSendInputY)
     }
 
     @Test

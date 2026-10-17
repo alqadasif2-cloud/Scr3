@@ -52,6 +52,10 @@ jobs:
             echo "ERROR: AndroidManifest.xml missing!"
             exit 1
           fi
+          if [ ! -f "android-app/gradle.properties" ]; then
+            echo "ERROR: gradle.properties missing in android-app!"
+            exit 1
+          fi
           echo "✓ تم التحقق بنجاح من وجود كافة ملفات مشروع Android الأساسية."
 
       - name: Set up JDK 17
