@@ -60,13 +60,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          cmdline-tools-version: '12.0'
-
-      - name: Accept Android SDK Licenses & Install Components
+      - name: Configure Android SDK & Accept Licenses
         run: |
+          echo "=== إعداد Android SDK وقبول التراخيص تلقائياً ==="
+          mkdir -p "$ANDROID_HOME/licenses" || true
+          echo "24333f8a63cbd83cc15234292d93c4dd63f04ee1" > "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "84831b9409646a34199f7d4a2a1975e51ec65f4d" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "d975f751698a77b662f1254ddbeed3901e976f5a" >> "$ANDROID_HOME/licenses/android-sdk-license"
+          echo "89388d41e21e77850823071970764cf20185e8f1" > "$ANDROID_HOME/licenses/android-sdk-preview-license"
+          echo "791244e830a34e55240370142e9f38234369c39c" > "$ANDROID_HOME/licenses/android-googletv-license"
+          echo "2704c3e37502a38d7373609ec7904f9e4f1a0ee7" > "$ANDROID_HOME/licenses/android-sdk-arm-dbt-license"
+          echo "601085b94cd77f0b54ff86406957099fed8072d0" > "$ANDROID_HOME/licenses/google-gdk-license"
           yes | sdkmanager --licenses || true
           sdkmanager "platforms;android-35" "build-tools;35.0.0" || true
 
