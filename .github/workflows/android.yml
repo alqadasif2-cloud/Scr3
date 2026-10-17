@@ -1,0 +1,126 @@
+name: Build Smart Remote Control Android
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      buildType:
+        description: 'Build Type (debug or release)'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Validate Android Project Structure
+        run: |
+          echo "=== التحقق من بنية مشروع Android ==="
+          if [ ! -d "android-app" ]; then
+            echo "ERROR: Directory android-app does not exist!"
+            exit 1
+          fi
+          if [ ! -f "android-app/settings.gradle.kts" ] && [ ! -f "android-app/settings.gradle" ]; then
+            echo "ERROR: settings.gradle(.kts) missing in android-app!"
+            exit 1
+          fi
+          if [ ! -f "android-app/app/build.gradle.kts" ] && [ ! -f "android-app/app/build.gradle" ]; then
+            echo "ERROR: app/build.gradle(.kts) missing!"
+            exit 1
+          fi
+          if [ ! -f "android-app/app/src/main/AndroidManifest.xml" ]; then
+            echo "ERROR: AndroidManifest.xml missing!"
+            exit 1
+          fi
+          echo "✓ تم التحقق بنجاح من وجود كافة ملفات مشروع Android الأساسية."
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: '12.0'
+
+      - name: Accept Android SDK Licenses & Install Components
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+          cache-disabled: false
+
+      - name: Generate or Verify Gradle Wrapper
+        run: |
+          cd android-app
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Generating Gradle wrapper jar..."
+            gradle wrapper --gradle-version 8.7
+          fi
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+          fi
+
+      - name: Run Android Unit Tests
+        run: |
+          cd android-app
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -f "./gradlew" ]; then
+            ./gradlew testDebugUnitTest --stacktrace --no-daemon
+          else
+            gradle testDebugUnitTest --stacktrace --no-daemon
+          fi
+
+      - name: Build Debug APK
+        id: build_apk
+        run: |
+          cd android-app
+          if [ -f "gradle/wrapper/gradle-wrapper.jar" ] && [ -f "./gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace --no-daemon
+          else
+            gradle assembleDebug --stacktrace --no-daemon
+          fi
+
+      - name: Verify APK Output
+        run: |
+          echo "=== فحص ملف الـ APK الناتج ==="
+          APK_PATH=$(find android-app/app/build/outputs/apk/debug -name "*.apk" 2>/dev/null | head -n 1)
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "ERROR: Could not find generated debug APK in android-app/app/build/outputs/apk/debug/"
+            exit 1
+          fi
+          echo "✓ تم إنشاء ملف الـ APK بنجاح: $APK_PATH"
+          ls -lh "$APK_PATH"
+
+      - name: Upload Debug APK to GitHub Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartRemoteControl-Android-Debug-APK
+          path: android-app/app/build/outputs/apk/debug/*.apk
+          retention-days: 30
+          if-no-files-found: error
