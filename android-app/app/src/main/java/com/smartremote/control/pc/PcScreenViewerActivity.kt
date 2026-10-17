@@ -10,12 +10,14 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.RelativeLayout
 import android.widget.TextView
 import android.widget.Toast
 
 /**
- * شاشة التحكم الكاملة في سطح مكتب Windows من الهاتف
- * تحول اللمسات والإيماءات إلى أوامر ماوس ولوحة مفاتيح
+ * شاشة المشاهدة والتحكم الكامل في الجهاز المستهدف
+ * تدعم التحكم في كمبيوتر Windows أو هاتف Android آخر
  */
 class PcScreenViewerActivity : Activity() {
 
@@ -25,14 +27,22 @@ class PcScreenViewerActivity : Activity() {
     private lateinit var keyboardButton: Button
     private lateinit var hiddenInputEditText: EditText
 
+    // أزرار التحكم بالنظام لأندرويد
+    private lateinit var btnBack: Button
+    private lateinit var btnHome: Button
+    private lateinit var btnRecents: Button
+
     private val connectionManager = PcConnectionManager()
     private lateinit var gestureDetector: GestureDetector
+    private var isAndroidTarget = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val pcIp = intent.getStringExtra("EXTRA_PC_IP") ?: "192.168.1.100"
-        val pcPin = intent.getStringExtra("EXTRA_PC_PIN") ?: "123456"
+        val targetIp = intent.getStringExtra("EXTRA_TARGET_IP") ?: intent.getStringExtra("EXTRA_PC_IP") ?: "192.168.1.100"
+        val targetPort = intent.getIntExtra("EXTRA_TARGET_PORT", 52840)
+        val targetPin = intent.getStringExtra("EXTRA_TARGET_PIN") ?: intent.getStringExtra("EXTRA_PC_PIN") ?: "123456"
+        isAndroidTarget = intent.getBooleanExtra("EXTRA_IS_ANDROID_TARGET", false)
 
         initUi()
         setupGestureDetector()
@@ -57,35 +67,35 @@ class PcScreenViewerActivity : Activity() {
         }
 
         // بدء الاتصال
-        connectionManager.connectToPc(pcIp, pcPin)
+        connectionManager.connectToPc(targetIp, targetPin, targetPort)
     }
 
     private fun initUi() {
-        // يتم بناء واجهة برمجية متجاوبة بدون الحاجة لملفات XML إضافية
-        val layout = android.widget.RelativeLayout(this).apply {
+        val rootLayout = RelativeLayout(this).apply {
             setBackgroundColor(android.graphics.Color.BLACK)
         }
 
         screenImageView = ImageView(this).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = android.widget.RelativeLayout.LayoutParams(
-                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT,
-                android.widget.RelativeLayout.LayoutParams.MATCH_PARENT
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.MATCH_PARENT
             )
         }
 
         statusTextView = TextView(this).apply {
-            text = "جاري الاتصال بالكمبيوتر..."
+            text = if (isAndroidTarget) "جاري الاتصال بهاتف Android المستهدف..." else "جاري الاتصال بكمبيوتر Windows..."
             setTextColor(android.graphics.Color.WHITE)
             textSize = 12f
-            setPadding(20, 10, 20, 10)
-            setBackgroundColor(android.graphics.Color.parseColor("#99000000"))
+            setPadding(16, 8, 16, 8)
+            setBackgroundColor(android.graphics.Color.parseColor("#AA0F172A"))
         }
 
         disconnectButton = Button(this).apply {
-            text = "إنهاء"
-            setBackgroundColor(android.graphics.Color.parseColor("#CCAA0000"))
+            text = "إنهاء الجلسة"
+            setBackgroundColor(android.graphics.Color.parseColor("#DC2626"))
             setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
             setOnClickListener {
                 connectionManager.disconnect()
                 finish()
@@ -93,9 +103,10 @@ class PcScreenViewerActivity : Activity() {
         }
 
         keyboardButton = Button(this).apply {
-            text = "لوحة المفاتيح"
-            setBackgroundColor(android.graphics.Color.parseColor("#CC333333"))
+            text = "الكتابة"
+            setBackgroundColor(android.graphics.Color.parseColor("#334155"))
             setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
             setOnClickListener {
                 toggleVirtualKeyboard()
             }
@@ -115,42 +126,112 @@ class PcScreenViewerActivity : Activity() {
             })
         }
 
-        val topBar = android.widget.LinearLayout(this).apply {
-            orientation = android.widget.LinearLayout.HORIZONTAL
-            addView(statusTextView)
+        val topBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                addRule(RelativeLayout.ALIGN_PARENT_TOP)
+            }
+            addView(statusTextView, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
             addView(keyboardButton)
             addView(disconnectButton)
         }
 
-        layout.addView(screenImageView)
-        layout.addView(topBar)
-        layout.addView(hiddenInputEditText)
+        // شريط أزرار التنقل (يظهر عندما يكون الجهاز المستهدف هو Android)
+        val bottomBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER
+            setBackgroundColor(android.graphics.Color.parseColor("#CC0F172A"))
+            setPadding(8, 6, 8, 6)
+            layoutParams = RelativeLayout.LayoutParams(
+                RelativeLayout.LayoutParams.MATCH_PARENT,
+                RelativeLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            }
+        }
 
-        setContentView(layout)
+        btnBack = Button(this).apply {
+            text = "الرجوع (Back)"
+            setBackgroundColor(android.graphics.Color.parseColor("#1E293B"))
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            setOnClickListener {
+                connectionManager.sendGlobalAction("BACK")
+            }
+        }
+
+        btnHome = Button(this).apply {
+            text = "الرئيسية (Home)"
+            setBackgroundColor(android.graphics.Color.parseColor("#1E293B"))
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            setOnClickListener {
+                connectionManager.sendGlobalAction("HOME")
+            }
+        }
+
+        btnRecents = Button(this).apply {
+            text = "المهام (Recents)"
+            setBackgroundColor(android.graphics.Color.parseColor("#1E293B"))
+            setTextColor(android.graphics.Color.WHITE)
+            textSize = 11f
+            setOnClickListener {
+                connectionManager.sendGlobalAction("RECENTS")
+            }
+        }
+
+        bottomBar.addView(btnBack, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        bottomBar.addView(btnHome, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        bottomBar.addView(btnRecents, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        rootLayout.addView(screenImageView)
+        rootLayout.addView(topBar)
+        if (isAndroidTarget) {
+            rootLayout.addView(bottomBar)
+        }
+        rootLayout.addView(hiddenInputEditText)
+
+        setContentView(rootLayout)
     }
 
     private fun setupGestureDetector() {
         gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 val (normX, normY) = getNormalizedCoordinates(e.x, e.y)
-                connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
-                connectionManager.sendMouseEvent("MOUSE_DOWN", normX, normY, "left")
-                connectionManager.sendMouseEvent("MOUSE_UP", normX, normY, "left")
+                if (isAndroidTarget) {
+                    connectionManager.sendTouchEvent("TOUCH_TAP", normX, normY)
+                } else {
+                    connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
+                    connectionManager.sendMouseEvent("MOUSE_DOWN", normX, normY, "left")
+                    connectionManager.sendMouseEvent("MOUSE_UP", normX, normY, "left")
+                }
                 return true
             }
 
             override fun onLongPress(e: MotionEvent) {
-                // ضغطة طويلة = نقرة يمين (Right Click)
                 val (normX, normY) = getNormalizedCoordinates(e.x, e.y)
-                connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
-                connectionManager.sendMouseEvent("MOUSE_DOWN", normX, normY, "right")
-                connectionManager.sendMouseEvent("MOUSE_UP", normX, normY, "right")
+                if (isAndroidTarget) {
+                    // ضغطة مطولة على أندرويد
+                    connectionManager.sendTouchEvent("TOUCH_TAP", normX, normY)
+                } else {
+                    // نقرة يمين على Windows
+                    connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
+                    connectionManager.sendMouseEvent("MOUSE_DOWN", normX, normY, "right")
+                    connectionManager.sendMouseEvent("MOUSE_UP", normX, normY, "right")
+                }
             }
 
             override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
-                // سحب = تحريك الماوس أو عجلة التمرير
                 val (normX, normY) = getNormalizedCoordinates(e2.x, e2.y)
-                connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
+                if (isAndroidTarget) {
+                    val startNormY = (normY + (if (distanceY > 0) 0.15f else -0.15f)).coerceIn(0f, 1f)
+                    connectionManager.sendSwipeEvent(normX, startNormY, normX, normY)
+                } else {
+                    connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
+                }
                 return true
             }
         })

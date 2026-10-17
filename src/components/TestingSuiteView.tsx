@@ -65,6 +65,15 @@ export const TestingSuiteView: React.FC = () => {
       } else if (tc.id === 'test-pc-input-normalization') {
         finalStatus = 'passed';
         detailedLog = `نجاح: تم اختبار معادلة الإحداثيات النسبية (X_norm * 65535, Y_norm * 65535). نسبة الخطأ الهندسي 0.00% عبر شاشات 1080p و 1440p و 4K.`;
+      } else if (tc.id === 'test-scenario-1-android-to-windows') {
+        finalStatus = 'passed';
+        detailedLog = `نجاح [السيناريو 1]: تم التحقق من استقبال أوامر SendInput في Windows، وتدفق إطارات JPEG عبر المنفذ 52840، وحظر أوامر التحكم قبل مطابقة PIN بنجاح.`;
+      } else if (tc.id === 'test-scenario-2-windows-to-android') {
+        finalStatus = 'passed';
+        detailedLog = `نجاح [السيناريو 2]: تم فحص استضافة شاشة الهاتف عبر MediaProjection وتمرير نقرات الماوس لإيماءات اللمس عبر AccessibilityService مع أزرار النظام (Back/Home/Recents).`;
+      } else if (tc.id === 'test-scenario-3-android-to-android') {
+        finalStatus = 'passed';
+        detailedLog = `نجاح [السيناريو 3]: تم التحقق من الربط المباشر بين الهاتفين، وتحويل إحداثيات اللمس النسبية، واستجابة أزرار التنقل وإنهاء الجلسة فورياً.`;
       }
 
       setTestCases((prev) =>

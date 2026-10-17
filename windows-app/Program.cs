@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 using SmartRemoteControl.Windows.Services;
@@ -7,6 +8,7 @@ namespace SmartRemoteControl.Windows
 {
     /// <summary>
     /// نقطة انطلاق برنامج Windows Smart Remote Control
+    /// يدعم السيناريوهات: هاتف -> كمبيوتر، و كمبيوتر -> هاتف
     /// </summary>
     public static class Program
     {
@@ -46,84 +48,193 @@ namespace SmartRemoteControl.Windows
         private readonly Button _disconnectButton;
         private readonly Button _newPinButton;
 
+        // عناصر التحكم بهاتف Android من الكمبيوتر (PC -> Android)
+        private readonly TextBox _phoneIpTextBox;
+        private readonly TextBox _phonePortTextBox;
+        private readonly TextBox _phonePinTextBox;
+        private readonly Button _connectToPhoneButton;
+
         public MainForm(NetworkTransportService networkService)
         {
             _networkService = networkService;
 
             Text = "Smart Remote Control for Windows - v1.1.0";
-            Width = 650;
-            Height = 480;
+            Width = 720;
+            Height = 620;
             StartPosition = FormStartPosition.CenterScreen;
             RightToLeft = RightToLeft.Yes;
             RightToLeftLayout = true;
+            BackColor = Color.FromArgb(15, 23, 42); // slate-950
+            ForeColor = Color.FromArgb(248, 250, 252);
 
             var mainPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(15) };
 
             var headerLabel = new Label
             {
-                Text = "نظام التحكم عن بعد المحلي لـ Windows",
-                Font = new System.Drawing.Font("Segoe UI", 14, System.Drawing.FontStyle.Bold),
+                Text = "منظومة التحكم عن بعد الذكية لـ Windows و Android",
+                Font = new Font("Segoe UI", 14, FontStyle.Bold),
                 Dock = DockStyle.Top,
-                Height = 35
+                Height = 35,
+                ForeColor = Color.White
             };
 
-            var infoPanel = new GroupBox
+            // لوحة استضافة الكمبيوتر (الهاتف يتحكم بالكمبيوتر)
+            var hostPanel = new GroupBox
             {
-                Text = "معلومات الاتصال والأمان",
+                Text = "1. استضافة هذا الكمبيوتر (التحكم من الهاتف في الكمبيوتر)",
                 Dock = DockStyle.Top,
-                Height = 110,
-                Padding = new Padding(10)
+                Height = 115,
+                Padding = new Padding(10),
+                ForeColor = Color.FromArgb(148, 163, 184)
             };
 
             _pinLabel = new Label
             {
-                Text = $"رمز الأمان (PIN) المطلوب للاتصال: {_networkService.DevicePin}",
-                Font = new System.Drawing.Font("Segoe UI", 12, System.Drawing.FontStyle.Bold),
-                ForeColor = System.Drawing.Color.DarkBlue,
-                Location = new System.Drawing.Point(15, 25),
+                Text = $"رمز الأمان (PIN) للاقتران: {_networkService.DevicePin}",
+                Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                ForeColor = Color.FromArgb(56, 189, 248),
+                Location = new Point(15, 25),
                 AutoSize = true
             };
 
             _statusLabel = new Label
             {
                 Text = "الحالة: جاهز بانتظار اتصال هاتف Android على المنفذ 52840",
-                Font = new System.Drawing.Font("Segoe UI", 10),
-                ForeColor = System.Drawing.Color.DarkGreen,
-                Location = new System.Drawing.Point(15, 60),
+                Font = new Font("Segoe UI", 9),
+                ForeColor = Color.FromArgb(16, 185, 129),
+                Location = new Point(15, 58),
                 AutoSize = true
             };
 
             _newPinButton = new Button
             {
                 Text = "توليد رمز جديد",
-                Location = new System.Drawing.Point(480, 22),
-                Size = new System.Drawing.Size(120, 30)
+                Location = new Point(530, 22),
+                Size = new Size(130, 30),
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
             };
             _newPinButton.Click += (s, e) =>
             {
                 _networkService.DevicePin = NetworkTransportService.GenerateNewPin();
-                _pinLabel.Text = $"رمز الأمان (PIN) المطلوب للاتصال: {_networkService.DevicePin}";
+                _pinLabel.Text = $"رمز الأمان (PIN) للاقتران: {_networkService.DevicePin}";
             };
 
             _disconnectButton = new Button
             {
                 Text = "قطع الاتصال فوراً",
-                Location = new System.Drawing.Point(480, 58),
-                Size = new System.Drawing.Size(120, 30),
-                BackColor = System.Drawing.Color.MistyRose
+                Location = new Point(530, 58),
+                Size = new Size(130, 30),
+                BackColor = Color.FromArgb(220, 38, 38),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat
             };
             _disconnectButton.Click += (s, e) => _networkService.DisconnectActiveSession();
 
-            infoPanel.Controls.Add(_pinLabel);
-            infoPanel.Controls.Add(_statusLabel);
-            infoPanel.Controls.Add(_newPinButton);
-            infoPanel.Controls.Add(_disconnectButton);
+            hostPanel.Controls.Add(_pinLabel);
+            hostPanel.Controls.Add(_statusLabel);
+            hostPanel.Controls.Add(_newPinButton);
+            hostPanel.Controls.Add(_disconnectButton);
+
+            // لوحة التحكم بهاتف Android من الكمبيوتر (PC -> Android)
+            var clientPanel = new GroupBox
+            {
+                Text = "2. التحكم في هاتف Android (مشاهدة شاشة الهاتف والتحكم بالماوس واللمس)",
+                Dock = DockStyle.Top,
+                Height = 100,
+                Padding = new Padding(10),
+                ForeColor = Color.FromArgb(148, 163, 184)
+            };
+
+            var ipLabel = new Label
+            {
+                Text = "عنوان IP الهاتف:",
+                Location = new Point(15, 28),
+                AutoSize = true,
+                ForeColor = Color.White
+            };
+
+            _phoneIpTextBox = new TextBox
+            {
+                Location = new Point(125, 25),
+                Width = 140,
+                Text = "192.168.1.100",
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White
+            };
+
+            var portLabel = new Label
+            {
+                Text = "المنفذ:",
+                Location = new Point(275, 28),
+                AutoSize = true,
+                ForeColor = Color.White
+            };
+
+            _phonePortTextBox = new TextBox
+            {
+                Location = new Point(320, 25),
+                Width = 60,
+                Text = "52840",
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White
+            };
+
+            var pinLabel2 = new Label
+            {
+                Text = "رمز PIN:",
+                Location = new Point(390, 28),
+                AutoSize = true,
+                ForeColor = Color.White
+            };
+
+            _phonePinTextBox = new TextBox
+            {
+                Location = new Point(450, 25),
+                Width = 70,
+                MaxLength = 6,
+                Text = "123456",
+                BackColor = Color.FromArgb(30, 41, 59),
+                ForeColor = Color.White
+            };
+
+            _connectToPhoneButton = new Button
+            {
+                Text = "الاتصال بالهاتف الآن",
+                Location = new Point(530, 23),
+                Size = new Size(130, 32),
+                BackColor = Color.FromArgb(79, 70, 229),
+                ForeColor = Color.White,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 9, FontStyle.Bold)
+            };
+            _connectToPhoneButton.Click += OnConnectToPhoneClick;
+
+            var descLabel = new Label
+            {
+                Text = "ملاحظة: تأكد من تفعيل «مشاركة شاشة هذا الجهاز» وخدمة AccessibilityService على هاتف Android أولاً.",
+                Location = new Point(15, 62),
+                AutoSize = true,
+                ForeColor = Color.FromArgb(148, 163, 184),
+                Font = new Font("Segoe UI", 8)
+            };
+
+            clientPanel.Controls.Add(ipLabel);
+            clientPanel.Controls.Add(_phoneIpTextBox);
+            clientPanel.Controls.Add(portLabel);
+            clientPanel.Controls.Add(_phonePortTextBox);
+            clientPanel.Controls.Add(pinLabel2);
+            clientPanel.Controls.Add(_phonePinTextBox);
+            clientPanel.Controls.Add(_connectToPhoneButton);
+            clientPanel.Controls.Add(descLabel);
 
             var logGroup = new GroupBox
             {
                 Text = "سجل أحداث الاتصال وأوامر التحكم",
                 Dock = DockStyle.Fill,
-                Padding = new Padding(10)
+                Padding = new Padding(10),
+                ForeColor = Color.FromArgb(148, 163, 184)
             };
 
             _logTextBox = new TextBox
@@ -132,19 +243,20 @@ namespace SmartRemoteControl.Windows
                 ReadOnly = true,
                 ScrollBars = ScrollBars.Vertical,
                 Dock = DockStyle.Fill,
-                BackColor = System.Drawing.Color.Black,
-                ForeColor = System.Drawing.Color.LimeGreen,
-                Font = new System.Drawing.Font("Consolas", 9)
+                BackColor = Color.Black,
+                ForeColor = Color.LimeGreen,
+                Font = new Font("Consolas", 9)
             };
             logGroup.Controls.Add(_logTextBox);
 
             mainPanel.Controls.Add(logGroup);
-            mainPanel.Controls.Add(infoPanel);
+            mainPanel.Controls.Add(clientPanel);
+            mainPanel.Controls.Add(hostPanel);
             mainPanel.Controls.Add(headerLabel);
 
             Controls.Add(mainPanel);
 
-            // ربط الأحداث
+            // ربط أحداث الخادم
             _networkService.LogMessage += msg =>
             {
                 if (InvokeRequired)
@@ -170,6 +282,31 @@ namespace SmartRemoteControl.Windows
             };
         }
 
+        private void OnConnectToPhoneClick(object? sender, EventArgs e)
+        {
+            string ip = _phoneIpTextBox.Text.Trim();
+            string portStr = _phonePortTextBox.Text.Trim();
+            string pin = _phonePinTextBox.Text.Trim();
+
+            if (string.IsNullOrEmpty(ip))
+            {
+                MessageBox.Show("يرجى إدخال عنوان IP لهاتف Android المستهدف.", "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            int port = int.TryParse(portStr, out int p) ? p : 52840;
+
+            if (pin.Length != 6)
+            {
+                MessageBox.Show("رمز PIN يجب أن يتكون من 6 أرقام.", "خطأ", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            AppendLog($"[Windows Client] فتح نافذة التحكم والاتصال بهاتف Android على {ip}:{port}...");
+            var viewerForm = new RemotePhoneViewerForm(ip, port, pin);
+            viewerForm.Show();
+        }
+
         private void AppendLog(string message)
         {
             string time = DateTime.Now.ToString("HH:mm:ss");
@@ -181,12 +318,12 @@ namespace SmartRemoteControl.Windows
             if (connected)
             {
                 _statusLabel.Text = $"الحالة: متصل نشط مع {client} (جلسة بث وتحكم جارية)";
-                _statusLabel.ForeColor = System.Drawing.Color.Green;
+                _statusLabel.ForeColor = Color.FromArgb(16, 185, 129);
             }
             else
             {
-                _statusLabel.Text = "الحالة: بانتظار اتصال هاتف Android على المنفذ 52840";
-                _statusLabel.ForeColor = System.Drawing.Color.DarkBlue;
+                _statusLabel.Text = "الحالة: جاهز بانتظار اتصال هاتف Android على المنفذ 52840";
+                _statusLabel.ForeColor = Color.FromArgb(56, 189, 248);
             }
         }
     }

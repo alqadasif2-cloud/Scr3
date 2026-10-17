@@ -7,7 +7,8 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 /**
- * مدير الاتصال الشبكي المباشر بين هاتف Android وجهاز كمبيوتر Windows
+ * مدير الاتصال الشبكي المباشر بين أجهزة Smart Remote Control
+ * يدعم الاتصال بكمبيوتر Windows أو بهاتف Android آخر
  */
 class PcConnectionManager {
 
@@ -32,11 +33,11 @@ class PcConnectionManager {
     private var currentSessionId: String = ""
 
     /**
-     * الاتصال بعنوان IP المباشر لجهاز الكمبيوتر مع رمز الـ PIN
+     * الاتصال بعنوان IP المباشر للجهاز المستهدف مع رمز الـ PIN والمنفذ
      */
-    fun connectToPc(pcIpAddress: String, pin: String, port: Int = DEFAULT_PC_PORT) {
-        val wsUrl = "ws://$pcIpAddress:$port/"
-        onLog?.invoke("جاري إنشاء اتصال مباشر مع الكمبيوتر: $wsUrl ...")
+    fun connectToPc(targetIpAddress: String, pin: String, port: Int = DEFAULT_PC_PORT) {
+        val wsUrl = "ws://$targetIpAddress:$port/"
+        onLog?.invoke("جاري إنشاء اتصال مباشر مع الجهاز: $wsUrl ...")
 
         val request = Request.Builder()
             .url(wsUrl)
@@ -61,12 +62,12 @@ class PcConnectionManager {
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 isConnected = false
                 onSessionStateChanged?.invoke(false, "تم إغلاق الجلسة: $reason")
-                onLog?.invoke("أغلق الكمبيوتر الجلسة: $reason")
+                onLog?.invoke("أغلق الطرف الآخر الجلسة: $reason")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 isConnected = false
-                val errorMsg = "فشل الاتصال بالكمبيوتر: ${t.localizedMessage ?: "تأكد من تشغيل البرنامج على Windows"}"
+                val errorMsg = "فشل الاتصال بالجهاز ($wsUrl): ${t.localizedMessage ?: "تأكد من تشغيل البرنامج ورمز PIN"}"
                 onSessionStateChanged?.invoke(false, errorMsg)
                 onLog?.invoke(errorMsg)
             }
@@ -77,7 +78,7 @@ class PcConnectionManager {
         val json = JSONObject().apply {
             put("type", "HANDSHAKE_HELLO")
             put("deviceId", Build.MODEL)
-            put("deviceName", "${Build.MANUFACTURER} ${Build.MODEL} (Android API ${Build.VERSION.SDK_INT})")
+            put("deviceName", "${Build.MANUFACTURER} ${Build.MODEL} (Client Android)")
             put("platform", "android")
             put("appVersion", "1.1.0")
         }
@@ -85,12 +86,12 @@ class PcConnectionManager {
     }
 
     private fun sendSessionRequest(pin: String) {
-        currentSessionId = "android_session_${System.currentTimeMillis()}"
+        currentSessionId = "session_${System.currentTimeMillis()}"
         val json = JSONObject().apply {
             put("type", "SESSION_REQUEST")
             put("sessionId", currentSessionId)
             put("initiatorId", Build.MODEL)
-            put("targetId", "windows_host")
+            put("targetId", "remote_host")
             put("requestedRole", "full_control")
             put("sessionPin", pin)
             put("targetFps", 30)
@@ -106,11 +107,11 @@ class PcConnectionManager {
                     val accepted = json.optBoolean("accepted", false)
                     if (accepted) {
                         onSessionStateChanged?.invoke(true, "تم قبول الاتصال والمصادقة بنجاح!")
-                        onLog?.invoke("وافق الكمبيوتر على طلب التحكم! بدأت جلسة البث.")
+                        onLog?.invoke("تم اعتماد الجلسة والمصادقة بنجاح! بدأت جلسة البث والتحكم.")
                     } else {
                         val reason = json.optString("rejectionReason", "تم رفض الطلب أو رمز PIN خاطئ")
                         onSessionStateChanged?.invoke(false, reason)
-                        onLog?.invoke("رفض الكمبيوتر الاتصال: $reason")
+                        onLog?.invoke("رفض الجهاز المستهدف الاتصال: $reason")
                         disconnect()
                     }
                 }
@@ -124,7 +125,7 @@ class PcConnectionManager {
                     }
                 }
                 "DISCONNECT" -> {
-                    onSessionStateChanged?.invoke(false, "تم إنهاء الجلسة من قبل الكمبيوتر.")
+                    onSessionStateChanged?.invoke(false, "تم إنهاء الجلسة من قبل الجهاز المستضيف.")
                     disconnect()
                 }
             }
@@ -133,15 +134,12 @@ class PcConnectionManager {
         }
     }
 
-    /**
-     * إرسال أمر تحكم بالفأرة (إحداثيات نسبية بين 0.0 و 1.0)
-     */
     fun sendMouseEvent(subType: String, normX: Float, normY: Float, button: String = "left", wheelDelta: Int = 0) {
         if (!isConnected) return
         val json = JSONObject().apply {
             put("type", "INPUT_EVENT")
             put("sessionId", currentSessionId)
-            put("subType", subType) // MOUSE_MOVE, MOUSE_DOWN, MOUSE_UP, MOUSE_WHEEL
+            put("subType", subType)
             put("normalizedX", normX.toDouble())
             put("normalizedY", normY.toDouble())
             put("button", button)
@@ -151,9 +149,46 @@ class PcConnectionManager {
         webSocket?.send(json.toString())
     }
 
-    /**
-     * إرسال نص مكتوب للكمبيوتر
-     */
+    fun sendTouchEvent(subType: String, normX: Float, normY: Float) {
+        if (!isConnected) return
+        val json = JSONObject().apply {
+            put("type", "INPUT_EVENT")
+            put("sessionId", currentSessionId)
+            put("subType", subType) // TOUCH_TAP
+            put("normalizedX", normX.toDouble())
+            put("normalizedY", normY.toDouble())
+            put("timestamp", System.currentTimeMillis())
+        }
+        webSocket?.send(json.toString())
+    }
+
+    fun sendSwipeEvent(startX: Float, startY: Float, endX: Float, endY: Float) {
+        if (!isConnected) return
+        val json = JSONObject().apply {
+            put("type", "INPUT_EVENT")
+            put("sessionId", currentSessionId)
+            put("subType", "TOUCH_SWIPE")
+            put("normalizedX", startX.toDouble())
+            put("normalizedY", startY.toDouble())
+            put("endNormalizedX", endX.toDouble())
+            put("endNormalizedY", endY.toDouble())
+            put("timestamp", System.currentTimeMillis())
+        }
+        webSocket?.send(json.toString())
+    }
+
+    fun sendGlobalAction(action: String) {
+        if (!isConnected) return
+        val json = JSONObject().apply {
+            put("type", "INPUT_EVENT")
+            put("sessionId", currentSessionId)
+            put("subType", "ANDROID_GLOBAL_ACTION")
+            put("globalAction", action) // BACK, HOME, RECENTS, NOTIFICATIONS
+            put("timestamp", System.currentTimeMillis())
+        }
+        webSocket?.send(json.toString())
+    }
+
     fun sendTextInput(text: String) {
         if (!isConnected || text.isEmpty()) return
         val json = JSONObject().apply {

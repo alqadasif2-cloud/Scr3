@@ -266,7 +266,9 @@ export const PcConnectionView: React.FC = () => {
     const commandText =
       direction === 'ANDROID_TO_PC'
         ? `[Windows SendInput] تحريك ونقر الفأرة: X=${pixelX}, Y=${pixelY} (زر ${button})`
-        : `[Android Accessibility] نقرة لمس في الإحداثيات: X=${pixelX}, Y=${pixelY}`;
+        : direction === 'PC_TO_ANDROID'
+        ? `[Android Accessibility] نقرة لمس من الكمبيوتر: X=${pixelX}, Y=${pixelY}`
+        : `[Android-to-Android] إرسال نقرة لمسية من الهاتف: X=${pixelX}, Y=${pixelY}`;
 
     setLastInjectedCommand(commandText);
     addLog(commandText);
@@ -413,6 +415,22 @@ export const PcConnectionView: React.FC = () => {
               <span>التحكم من كمبيوتر Windows في هاتف Android</span>
               <Smartphone className="w-4 h-4 text-emerald-400" />
             </button>
+
+            <button
+              onClick={() => {
+                if (connectionState === 'SESSION_ACTIVE') handleTerminateSession();
+                setDirection('ANDROID_TO_ANDROID');
+              }}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition ${
+                direction === 'ANDROID_TO_ANDROID'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Smartphone className="w-4 h-4 text-emerald-400" />
+              <span>التحكم من هاتف Android في هاتف Android آخر</span>
+              <Smartphone className="w-4 h-4 text-indigo-400" />
+            </button>
           </div>
         </div>
       </div>
@@ -440,7 +458,9 @@ export const PcConnectionView: React.FC = () => {
                 <strong className="text-white">
                   {direction === 'ANDROID_TO_PC'
                     ? 'شاشة سطح مكتب Windows (Windows Remote Desktop)'
-                    : 'شاشة هاتف Android الحية (Android Screen Cast)'}
+                    : direction === 'PC_TO_ANDROID'
+                    ? 'شاشة هاتف Android الحية (Android Screen Cast)'
+                    : 'شاشة هاتف Android المستهدف (Peer-to-Peer Mirroring)'}
                 </strong>
                 <span className="text-slate-400 font-mono text-[11px]">
                   {connectionState === 'SESSION_ACTIVE' ? `[متصل عبر LAN] ${targetIp}` : '[وضع الاستعداد]'}

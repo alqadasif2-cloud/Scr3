@@ -1,4 +1,4 @@
-export type ConnectionDirection = 'ANDROID_TO_PC' | 'PC_TO_ANDROID';
+export type ConnectionDirection = 'ANDROID_TO_PC' | 'PC_TO_ANDROID' | 'ANDROID_TO_ANDROID';
 
 export type SessionConnectionState =
   | 'DISCONNECTED'
