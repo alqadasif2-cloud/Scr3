@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Windows.Forms;
 using SmartRemoteControl.Windows.Services;
@@ -83,7 +86,7 @@ namespace SmartRemoteControl.Windows
             {
                 Text = "1. استضافة هذا الكمبيوتر (التحكم من الهاتف في الكمبيوتر)",
                 Dock = DockStyle.Top,
-                Height = 115,
+                Height = 135,
                 Padding = new Padding(10),
                 ForeColor = Color.FromArgb(148, 163, 184)
             };
@@ -97,12 +100,22 @@ namespace SmartRemoteControl.Windows
                 AutoSize = true
             };
 
+            var localIps = GetLocalIpAddresses();
+            var ipInfoLabel = new Label
+            {
+                Text = $"عنوان IP لهذا الكمبيوتر: {localIps}  |  المنفذ: 52840",
+                Font = new Font("Segoe UI", 9, FontStyle.Bold),
+                ForeColor = Color.FromArgb(245, 158, 11), // amber-500
+                Location = new Point(15, 58),
+                AutoSize = true
+            };
+
             _statusLabel = new Label
             {
-                Text = "الحالة: جاهز بانتظار اتصال هاتف Android على المنفذ 52840",
+                Text = $"الحالة: جاهز بانتظار اتصال هاتف Android عبر ws://{localIps.Split(new[] { " أو ", " " }, StringSplitOptions.RemoveEmptyEntries)[0]}:52840",
                 Font = new Font("Segoe UI", 9),
                 ForeColor = Color.FromArgb(16, 185, 129),
-                Location = new Point(15, 58),
+                Location = new Point(15, 88),
                 AutoSize = true
             };
 
@@ -133,6 +146,7 @@ namespace SmartRemoteControl.Windows
             _disconnectButton.Click += (s, e) => _networkService.DisconnectActiveSession();
 
             hostPanel.Controls.Add(_pinLabel);
+            hostPanel.Controls.Add(ipInfoLabel);
             hostPanel.Controls.Add(_statusLabel);
             hostPanel.Controls.Add(_newPinButton);
             hostPanel.Controls.Add(_disconnectButton);
@@ -322,9 +336,28 @@ namespace SmartRemoteControl.Windows
             }
             else
             {
-                _statusLabel.Text = "الحالة: جاهز بانتظار اتصال هاتف Android على المنفذ 52840";
+                string localIp = GetLocalIpAddresses().Split(new[] { " أو ", " " }, StringSplitOptions.RemoveEmptyEntries)[0];
+                _statusLabel.Text = $"الحالة: جاهز بانتظار اتصال هاتف Android عبر ws://{localIp}:52840";
                 _statusLabel.ForeColor = Color.FromArgb(56, 189, 248);
             }
+        }
+
+        public static string GetLocalIpAddresses()
+        {
+            var ips = new List<string>();
+            try
+            {
+                var host = Dns.GetHostEntry(Dns.GetHostName());
+                foreach (var ip in host.AddressList)
+                {
+                    if (ip.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(ip))
+                    {
+                        ips.Add(ip.ToString());
+                    }
+                }
+            }
+            catch { }
+            return ips.Count > 0 ? string.Join(" أو ", ips) : "127.0.0.1";
         }
     }
 }

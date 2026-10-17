@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * مدير الاتصال الشبكي المباشر بين أجهزة Smart Remote Control
- * يدعم الاتصال بكمبيوتر Windows أو بهاتف Android آخر
+ * يدعم الاتصال المباشر بجهاز Windows PC أو بهاتف Android آخر عبر WebSocket
  */
 class PcConnectionManager {
 
@@ -18,8 +18,11 @@ class PcConnectionManager {
     }
 
     private var client: OkHttpClient = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS) // غير محدود لاستمرار تدفق إطارات الشاشة دون انقطاع
+        .writeTimeout(10, TimeUnit.SECONDS)
         .pingInterval(2, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
         .build()
 
     private var webSocket: WebSocket? = null
@@ -34,10 +37,31 @@ class PcConnectionManager {
 
     /**
      * الاتصال بعنوان IP المباشر للجهاز المستهدف مع رمز الـ PIN والمنفذ
+     * يقوم بمعالجة وتطهير العنوان تلقائياً (إزالة ws:// أو البادئات أو المنافذ المكررة)
      */
     fun connectToPc(targetIpAddress: String, pin: String, port: Int = DEFAULT_PC_PORT) {
-        val wsUrl = "ws://$targetIpAddress:$port/"
-        onLog?.invoke("جاري إنشاء اتصال مباشر مع الجهاز: $wsUrl ...")
+        // تنظيف عنوان IP المدخل واستخراج المنفذ إذا تم تضمينه
+        val raw = targetIpAddress.trim()
+            .removePrefix("ws://")
+            .removePrefix("wss://")
+            .removePrefix("http://")
+            .removePrefix("https://")
+            .trimEnd('/')
+
+        val finalIp: String
+        val finalPort: Int
+
+        if (raw.contains(":")) {
+            val parts = raw.split(":")
+            finalIp = parts[0].trim()
+            finalPort = parts[1].toIntOrNull() ?: port
+        } else {
+            finalIp = raw
+            finalPort = port
+        }
+
+        val wsUrl = "ws://$finalIp:$finalPort/"
+        onLog?.invoke("جاري إنشاء اتصال مباشر مع جهاز Windows: $wsUrl ...")
 
         val request = Request.Builder()
             .url(wsUrl)
@@ -45,8 +69,8 @@ class PcConnectionManager {
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                isConnected = true
-                onLog?.invoke("تم فتح مقبس الاتصال بنجاح. جاري إرسال التحية والمصادقة...")
+                // المقبس مفتوح ولكن الجلسة لم تُعتمد بعد بالـ PIN
+                onLog?.invoke("تم فتح مقبس الاتصال مع $finalIp:$finalPort بنجاح. جاري إرسال التحية والمصادقة برمز PIN...")
 
                 // 1. إرسال حزمة التعريف HANDSHAKE_HELLO
                 sendHandshakeHello()
@@ -67,7 +91,17 @@ class PcConnectionManager {
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 isConnected = false
-                val errorMsg = "فشل الاتصال بالجهاز ($wsUrl): ${t.localizedMessage ?: "تأكد من تشغيل البرنامج ورمز PIN"}"
+                val rawMsg = t.message ?: ""
+                val errorMsg = when {
+                    rawMsg.contains("CLEARTEXT", ignoreCase = true) ->
+                        "تنبيه أمان الشبكة (CLEARTEXT): تم حظر الاتصال بـ $finalIp:$finalPort. تم تحديث network_security_config للسماح بالاتصال المباشر على الشبكات المحلية."
+                    rawMsg.contains("Connection refused", ignoreCase = true) ||
+                    rawMsg.contains("failed to connect", ignoreCase = true) ->
+                        "تعذر الاتصال بالكمبيوتر ($finalIp:$finalPort). تأكد من: 1) تشغيل برنامج Windows 2) تواجد الهاتف والكمبيوتر على نفس الراوتر 3) فتح المنفذ 52840 في جدار حماية Windows (Firewall)."
+                    rawMsg.contains("timed out", ignoreCase = true) || rawMsg.contains("timeout", ignoreCase = true) ->
+                        "انتهت مهلة الاتصال بالكمبيوتر ($finalIp:$finalPort). يرجى التأكد من تشغيل البرنامج وسماح جدار حماية Windows للمنفذ 52840."
+                    else -> "فشل الاتصال بـ $finalIp:$finalPort: ${t.localizedMessage ?: "تحقق من تشغيل البرنامج والشبكة ورمز PIN"}"
+                }
                 onSessionStateChanged?.invoke(false, errorMsg)
                 onLog?.invoke(errorMsg)
             }
@@ -106,12 +140,14 @@ class PcConnectionManager {
                 "SESSION_RESPONSE" -> {
                     val accepted = json.optBoolean("accepted", false)
                     if (accepted) {
-                        onSessionStateChanged?.invoke(true, "تم قبول الاتصال والمصادقة بنجاح!")
-                        onLog?.invoke("تم اعتماد الجلسة والمصادقة بنجاح! بدأت جلسة البث والتحكم.")
+                        isConnected = true
+                        onSessionStateChanged?.invoke(true, "تم قبول الاتصال والمصادقة بنجاح! جاري استقبال البث المباشر.")
+                        onLog?.invoke("تم اعتماد الجلسة برمز PIN بنجاح! بدأ البث المباشر والتحكم بالفأرة ولوحة المفاتيح.")
                     } else {
-                        val reason = json.optString("rejectionReason", "تم رفض الطلب أو رمز PIN خاطئ")
-                        onSessionStateChanged?.invoke(false, reason)
-                        onLog?.invoke("رفض الجهاز المستهدف الاتصال: $reason")
+                        isConnected = false
+                        val reason = json.optString("rejectionReason", "تم رفض الطلب أو رمز PIN غير صحيح.")
+                        onSessionStateChanged?.invoke(false, "فشلت المصادقة: $reason")
+                        onLog?.invoke("رفض الكمبيوتر طلب الجلسة: $reason")
                         disconnect()
                     }
                 }
@@ -130,7 +166,7 @@ class PcConnectionManager {
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "خطأ في تحليل الحزمة: ${e.message}")
+            Log.e(TAG, "خطأ في تحليل الحزمة الواردة: ${e.message}")
         }
     }
 

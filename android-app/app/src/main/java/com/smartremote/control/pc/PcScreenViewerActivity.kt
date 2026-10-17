@@ -61,6 +61,9 @@ class PcScreenViewerActivity : Activity() {
             runOnUiThread {
                 statusTextView.text = message
                 if (!connected) {
+                    // تفريغ صورة الشاشة فوراً لمنع بقاء أي لقطات قديمة بعد فشل البث
+                    screenImageView.setImageBitmap(null)
+                    screenImageView.setBackgroundColor(android.graphics.Color.BLACK)
                     Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 }
             }
@@ -231,6 +234,9 @@ class PcScreenViewerActivity : Activity() {
                     connectionManager.sendSwipeEvent(normX, startNormY, normX, normY)
                 } else {
                     connectionManager.sendMouseEvent("MOUSE_MOVE", normX, normY)
+                    // إرسال تمرير عجلة الفأرة على Windows
+                    val wheelDelta = if (distanceY > 0) -120 else 120
+                    connectionManager.sendMouseEvent("MOUSE_WHEEL", normX, normY, wheelDelta = wheelDelta)
                 }
                 return true
             }

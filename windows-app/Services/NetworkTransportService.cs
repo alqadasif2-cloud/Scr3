@@ -1,6 +1,9 @@
 using System;
+using System.IO;
 using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -11,11 +14,13 @@ namespace SmartRemoteControl.Windows.Services
 {
     /// <summary>
     /// خدمة النقل الشبكي لبرنامج Windows عبر WebSocket محلي على المنفذ 52840
+    /// تدعم الاستماع المزدوج (HttpListener مع بديل TcpListener المباشر للعمل دون صلاحيات المسؤول)
     /// مزودة بحماية أمنية من هجمات التخمين ومنع تنفيذ الأوامر قبل المصادقة
     /// </summary>
     public class NetworkTransportService : IDisposable
     {
         private HttpListener? _httpListener;
+        private TcpListener? _tcpListener;
         private CancellationTokenSource? _cts;
         private WebSocket? _activeClientWebSocket;
 
@@ -52,22 +57,43 @@ namespace SmartRemoteControl.Windows.Services
         public void StartServer(int port = 52840)
         {
             _cts = new CancellationTokenSource();
-            _httpListener = new HttpListener();
-            _httpListener.Prefixes.Add($"http://*:{port}/");
+            bool startedWithHttp = false;
 
+            // 1. محاولة بدء HttpListener القياسي
             try
             {
+                _httpListener = new HttpListener();
+                _httpListener.Prefixes.Add($"http://*:{port}/");
                 _httpListener.Start();
-                LogMessage?.Invoke($"[Windows Server] تم بدء تشغيل خادم الاتصال المحلي على المنفذ {port}. رمز PIN الحالي: {DevicePin}");
-                Task.Run(() => ListenLoop(_cts.Token));
+                startedWithHttp = true;
+                LogMessage?.Invoke($"[Windows Server] تم بدء تشغيل خادم الاتصال المحلي (HttpListener) على 0.0.0.0:{port} بنجاح.");
+                Task.Run(() => ListenLoopHttp(_cts.Token));
             }
             catch (Exception ex)
             {
-                LogMessage?.Invoke($"[Windows Server] تعذر بدء الخادم على المنفذ {port}: {ex.Message}. (قد يتطلب أذونات المسؤول)");
+                LogMessage?.Invoke($"[Windows Server] تنبيه HttpListener: {ex.Message}. سيتم تشغيل خادم TcpListener المباشر للعمل دون اشتراط صلاحيات المسؤول...");
+                try { _httpListener?.Close(); } catch { }
+                _httpListener = null;
+            }
+
+            // 2. إذا فشل HttpListener (مثلاً Access is denied للمستخدم غير المسؤول)، يتم تشغيل خادم TcpListener المباشر فوراً
+            if (!startedWithHttp)
+            {
+                try
+                {
+                    _tcpListener = new TcpListener(IPAddress.Any, port);
+                    _tcpListener.Start();
+                    LogMessage?.Invoke($"[Windows Server] تم تشغيل خادم المقابس المباشر (TcpListener) على كافة واجهات الشبكة 0.0.0.0:{port} بنجاح.");
+                    Task.Run(() => ListenLoopTcp(_cts.Token));
+                }
+                catch (Exception ex)
+                {
+                    LogMessage?.Invoke($"[Windows Server] تعذر بدء خادم المنفذ {port}: {ex.Message}. تأكد من عدم استخدام المنفذ بواسطة تطبيق آخر.");
+                }
             }
         }
 
-        private async Task ListenLoop(CancellationToken ct)
+        private async Task ListenLoopHttp(CancellationToken ct)
         {
             while (!ct.IsCancellationRequested && _httpListener != null && _httpListener.IsListening)
             {
@@ -78,7 +104,7 @@ namespace SmartRemoteControl.Windows.Services
                     {
                         var wsContext = await context.AcceptWebSocketAsync(null);
                         _activeClientWebSocket = wsContext.WebSocket;
-                        _isSessionAuthenticated = false; // لم تتم المصادقة بعد
+                        _isSessionAuthenticated = false;
                         ConnectionStateChanged?.Invoke(false, context.Request.RemoteEndPoint.ToString());
                         LogMessage?.Invoke($"[Windows Server] اتصال وارد جديد من: {context.Request.RemoteEndPoint}. في انتظار إرسال رمز PIN...");
 
@@ -86,7 +112,6 @@ namespace SmartRemoteControl.Windows.Services
                     }
                     else
                     {
-                        // استجابة فحص الصحة REST
                         byte[] responseBytes = Encoding.UTF8.GetBytes("{\"status\":\"SmartRemoteWindowsReady\",\"protocolVersion\":\"1.1.0\",\"pinRequired\":true}");
                         context.Response.ContentType = "application/json";
                         context.Response.OutputStream.Write(responseBytes, 0, responseBytes.Length);
@@ -97,6 +122,102 @@ namespace SmartRemoteControl.Windows.Services
                 {
                     LogMessage?.Invoke($"[Windows Server] خطأ في الاستماع: {ex.Message}");
                 }
+            }
+        }
+
+        private async Task ListenLoopTcp(CancellationToken ct)
+        {
+            while (!ct.IsCancellationRequested && _tcpListener != null)
+            {
+                try
+                {
+                    var tcpClient = await _tcpListener.AcceptTcpClientAsync(ct);
+                    _ = Task.Run(() => HandleTcpClient(tcpClient, ct), ct);
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    LogMessage?.Invoke($"[Windows Server] خطأ في قبول اتصال TCP: {ex.Message}");
+                }
+            }
+        }
+
+        private async Task HandleTcpClient(TcpClient tcpClient, CancellationToken ct)
+        {
+            try
+            {
+                var stream = tcpClient.GetStream();
+                
+                // قراءة ترويسات HTTP بدقة بايت تلو الآخر حتى نهاية الترويسة \r\n\r\n
+                // لمنع ابتلاع أي بايتات من إطارات WebSocket اللاحقة بواسطة مخزن StreamReader
+                var headerBytes = new System.Collections.Generic.List<byte>();
+                byte[] oneByte = new byte[1];
+                string webSocketKey = string.Empty;
+
+                while (await stream.ReadAsync(oneByte, 0, 1, ct) > 0)
+                {
+                    headerBytes.Add(oneByte[0]);
+                    int count = headerBytes.Count;
+                    if (count >= 4 &&
+                        headerBytes[count - 4] == (byte)'\r' &&
+                        headerBytes[count - 3] == (byte)'\n' &&
+                        headerBytes[count - 2] == (byte)'\r' &&
+                        headerBytes[count - 1] == (byte)'\n')
+                    {
+                        break;
+                    }
+
+                    if (count > 16384) // حماية أمنية من الترويسات الزائدة
+                    {
+                        break;
+                    }
+                }
+
+                string headerText = Encoding.UTF8.GetString(headerBytes.ToArray());
+                foreach (var rawLine in headerText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    if (rawLine.StartsWith("Sec-WebSocket-Key:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        webSocketKey = rawLine.Substring("Sec-WebSocket-Key:".Length).Trim();
+                        break;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(webSocketKey))
+                {
+                    byte[] responseBytes = Encoding.UTF8.GetBytes("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{\"status\":\"SmartRemoteWindowsReady\",\"protocolVersion\":\"1.1.0\",\"pinRequired\":true}\r\n");
+                    await stream.WriteAsync(responseBytes, ct);
+                    await stream.FlushAsync(ct);
+                    tcpClient.Close();
+                    return;
+                }
+
+                string acceptKey;
+                using (var sha1 = SHA1.Create())
+                {
+                    byte[] hash = sha1.ComputeHash(Encoding.UTF8.GetBytes(webSocketKey + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"));
+                    acceptKey = Convert.ToBase64String(hash);
+                }
+
+                byte[] handshakeResp = Encoding.UTF8.GetBytes(
+                    "HTTP/1.1 101 Switching Protocols\r\n" +
+                    "Upgrade: websocket\r\n" +
+                    "Connection: Upgrade\r\n" +
+                    $"Sec-WebSocket-Accept: {acceptKey}\r\n\r\n");
+
+                await stream.WriteAsync(handshakeResp, ct);
+                await stream.FlushAsync(ct);
+
+                var ws = WebSocket.CreateFromStream(stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(2));
+                _activeClientWebSocket = ws;
+                _isSessionAuthenticated = false;
+                ConnectionStateChanged?.Invoke(false, tcpClient.Client.RemoteEndPoint?.ToString() ?? "Unknown");
+                LogMessage?.Invoke($"[Windows Server] اتصال وارد جديد عبر WebSocket من: {tcpClient.Client.RemoteEndPoint}. في انتظار إرسال رمز PIN...");
+
+                await HandleClientConnection(ws, ct);
+            }
+            catch (Exception ex)
+            {
+                LogMessage?.Invoke($"[Windows Server] خطأ في مصافحة العميل: {ex.Message}");
             }
         }
 
@@ -132,7 +253,6 @@ namespace SmartRemoteControl.Windows.Services
                             break;
 
                         case "SESSION_REQUEST":
-                            // 1. فحص فترة التجميد المؤقت ضد هجمات التخمين المتكرر (Brute-Force Protection)
                             if (DateTime.UtcNow < _lockoutUntil)
                             {
                                 int remainingSec = (int)(_lockoutUntil - DateTime.UtcNow).TotalSeconds;
@@ -164,7 +284,8 @@ namespace SmartRemoteControl.Windows.Services
                                     };
                                     await SendJsonPacket(ws, resp);
                                     ConnectionStateChanged?.Invoke(true, "جلسة معتمدة");
-                                    LogMessage?.Invoke($"[Windows Server] تم اعتماد الجلسة بنجاح! رمز PIN مطابق ({req.SessionPin}).");
+                                    // تدبير أمني: عدم تسجيل الـ PIN في السجلات لحماية الخصوصية
+                                    LogMessage?.Invoke("[Windows Server] تم اعتماد الجلسة بنجاح بعد التحقق من صحة رمز المصادقة.");
 
                                     // بدء بث الشاشة
                                     _captureService.Start(currentSessionId, req.TargetFps);
@@ -187,7 +308,8 @@ namespace SmartRemoteControl.Windows.Services
                                         RejectionReason = "رمز PIN غير صحيح أو تم رفض الطلب."
                                     };
                                     await SendJsonPacket(ws, resp);
-                                    LogMessage?.Invoke($"[Windows Server] محاولة اتصال غير مصرح بها برمز PIN خاطئ: ({req.SessionPin}). المحاولات الخاطئة: {_failedAttempts}/3.");
+                                    // تدبير أمني: عدم تسجيل الـ PIN الخاطئ في السجلات
+                                    LogMessage?.Invoke($"[Windows Server] محاولة اتصال غير مصرح بها برمز PIN غير مطابق. المحاولات الخاطئة: {_failedAttempts}/3.");
                                 }
                             }
                             break;
@@ -229,7 +351,6 @@ namespace SmartRemoteControl.Windows.Services
 
         private async void OnFrameCaptured(ScreenFramePacket framePacket)
         {
-            // منع تراكم الإطارات في طابور الذاكرة إذا كانت سرعة الشبكة منخفضة
             if (Interlocked.CompareExchange(ref _isSendingFrame, 1, 0) == 0)
             {
                 try
@@ -276,8 +397,8 @@ namespace SmartRemoteControl.Windows.Services
         {
             _cts?.Cancel();
             _captureService.Dispose();
-            _httpListener?.Stop();
-            _httpListener?.Close();
+            try { _httpListener?.Stop(); _httpListener?.Close(); } catch { }
+            try { _tcpListener?.Stop(); } catch { }
         }
     }
 }

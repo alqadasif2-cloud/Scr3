@@ -813,29 +813,41 @@ export const PcConnectionView: React.FC = () => {
 
           </div>
 
-          {/* Required Permissions Explanations */}
-          <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-5 shadow-xl space-y-3 text-xs">
-            <h4 className="font-bold text-white flex items-center gap-1.5">
+          {/* Required Permissions Explanations & CLEARTEXT Fix Guide */}
+          <div className="bg-slate-900/90 rounded-2xl border border-slate-800 p-5 shadow-xl space-y-4 text-xs">
+            <h4 className="font-bold text-white flex items-center gap-1.5 text-sm">
               <ShieldAlert className="w-4 h-4 text-amber-400" />
-              <span>الصلاحيات والمتطلبات النظامية المطلوبة:</span>
+              <span>إصلاحات الاتصال والأمان الشبكي (Android & Windows Direct Connection):</span>
             </h4>
-            <ul className="space-y-2 text-slate-300">
+
+            {/* بطاقة حل مشكلة CLEARTEXT المباشرة */}
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-1.5">
+              <div className="flex items-center gap-2 font-bold text-amber-300">
+                <CheckCircle2 className="w-4 h-4 text-amber-400" />
+                <span>حل مشكلة CLEARTEXT communication not permitted (ws://192.168.0.168:52840)</span>
+              </div>
+              <p className="text-slate-300 leading-relaxed text-[11px]">
+                تم ضبط ملف <code className="text-amber-200 bg-slate-950 px-1 py-0.5 rounded">network_security_config.xml</code> بإتاحة <code className="text-emerald-300">cleartextTrafficPermitted=&quot;true&quot;</code> ضمن <code className="text-emerald-300">&lt;base-config&gt;</code> وإزالة وسوم النطاقات غير الصالحة لعناوين IP، مما يسمح لتطبيق Android بالاتصال المباشر بالكمبيوتر دون حظر أمني على كافة إصدارات Android 9 إلى Android 15.
+              </p>
+            </div>
+
+            <ul className="space-y-2.5 text-slate-300">
               <li className="flex items-start gap-2">
                 <span className="text-indigo-400 font-bold">•</span>
                 <span>
-                  <strong className="text-white">على Windows:</strong> السماح للمنفذ 52840 في جدار الحماية (Windows Firewall)، وتشغيل البرنامج كمسؤول (Run as Admin) للتحكم في تطبيقات النظام المحمية.
+                  <strong className="text-white">على Windows (الكمبيوتر):</strong> شغّل <code className="text-indigo-300 bg-slate-950 px-1.5 py-0.5 rounded font-mono">setup-firewall.bat</code> كمسؤول لفتح المنفذ 52840 وحجز بادئة URL. عند تشغيل <code className="text-slate-100 font-mono">SmartRemoteControl.Windows.exe</code> سيعرض لك عنوان IP المحلي المباشر للحاسوب على الشاشة.
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-emerald-400 font-bold">•</span>
                 <span>
-                  <strong className="text-white">على Android:</strong> موافقة MediaProjection لبث شاشة الهاتف، وتفعيل خدمة AccessibilityService على Android 7.0+ لحقن لمسات الماوس.
+                  <strong className="text-white">على Android (الهاتف):</strong> أدخل عنوان IP المعروض في برنامج Windows (مثل <code className="text-emerald-300 font-mono">192.168.0.168</code>) والمنفذ <code className="text-emerald-300 font-mono">52840</code> ورمز PIN المكون من 6 أرقام، واضغط «بدء الاتصال بالجهاز».
                 </span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-amber-400 font-bold">•</span>
                 <span>
-                  <strong className="text-white">الشبكة:</strong> يجب أن يكون الهاتف والكمبيوتر متصلين بنفس موجه الشبكة (Wi-Fi Router) لضمان مرور حزم UDP و WebSocket دون حظر AP Isolation.
+                  <strong className="text-white">الشبكة المشتركة:</strong> يجب أن يكون الهاتف والكمبيوتر متصلين بنفس موجه الشبكة (Wi-Fi Router) لضمان مرور حزم WebSocket دون حظر عزل الأجهزة (AP Isolation).
                 </span>
               </li>
             </ul>
